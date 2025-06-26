@@ -42,6 +42,23 @@ pub async fn start_tracking(
     project_slug: &str,
     description: Option<String>,
 ) -> Result<()> {
+    // Check current status before starting
+    match api_client.get_time_entries(project_slug).await {
+        Ok(entries) => {
+            if is_project_running(&entries) {
+                eprintln!("❌ Project '{}' is already running!", project_slug);
+                eprintln!("   💡 Use 'timetracker end {}' to stop tracking first", project_slug);
+                logger.log(&format!("Attempted to start already running project: {}", project_slug)).await?;
+                return Ok(());
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to check project status: {}", e);
+            logger.log(&format!("Failed to check status before starting {}: {}", project_slug, e)).await?;
+            return Ok(());
+        }
+    }
+
     let timestamp = Utc::now().timestamp();
     
     let entry = TimeEntry {
@@ -78,6 +95,30 @@ pub async fn end_tracking(
     project_slug: &str,
     description: Option<String>,
 ) -> Result<()> {
+    // Check current status before stopping
+    match api_client.get_time_entries(project_slug).await {
+        Ok(entries) => {
+            if entries.is_empty() {
+                eprintln!("❌ No time entries found for project '{}'!", project_slug);
+                eprintln!("   💡 Use 'timetracker start {}' to start tracking first", project_slug);
+                logger.log(&format!("Attempted to stop project with no entries: {}", project_slug)).await?;
+                return Ok(());
+            }
+            
+            if !is_project_running(&entries) {
+                eprintln!("❌ Project '{}' is not currently running!", project_slug);
+                eprintln!("   💡 Use 'timetracker start {}' to start tracking first", project_slug);
+                logger.log(&format!("Attempted to stop already stopped project: {}", project_slug)).await?;
+                return Ok(());
+            }
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to check project status: {}", e);
+            logger.log(&format!("Failed to check status before stopping {}: {}", project_slug, e)).await?;
+            return Ok(());
+        }
+    }
+
     let timestamp = Utc::now().timestamp();
     
     let entry = TimeEntry {

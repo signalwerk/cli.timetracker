@@ -404,6 +404,106 @@ pub async fn delete_project(api_client: &ApiClient, logger: &Logger, slug: &str)
     Ok(())
 }
 
+pub async fn delete_project_with_selection(api_client: &ApiClient, logger: &Logger) -> Result<()> {
+    logger.log("Deleting project with selection").await?;
+    
+    // Get all projects
+    let projects = match api_client.get_projects().await {
+        Ok(projects) => {
+            if projects.is_empty() {
+                println!("❌ No projects found");
+                return Ok(());
+            }
+            projects
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to get projects: {}", e);
+            logger.log(&format!("Failed to get projects: {}", e)).await?;
+            return Ok(());
+        }
+    };
+    
+    // Display all projects
+    println!("🗑️  Select a project to delete:");
+    println!("");
+    for (index, project) in projects.iter().enumerate() {
+        println!("  {}. {} ({}) - {}", 
+                 index + 1, 
+                 project.name, 
+                 project.slug, 
+                 project.description);
+    }
+    
+    println!("");
+    print!("Select project to delete (1-{}), or 'q' to quit: ", projects.len());
+    io::stdout().flush()?;
+    
+    // Get user selection
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let input = input.trim();
+    
+    if input.eq_ignore_ascii_case("q") {
+        println!("❌ Delete cancelled");
+        return Ok(());
+    }
+    
+    let selection: usize = match input.parse::<usize>() {
+        Ok(num) if num >= 1 && num <= projects.len() => num - 1,
+        _ => {
+            println!("❌ Invalid selection. Please enter a number between 1 and {}", projects.len());
+            return Ok(());
+        }
+    };
+    
+    let selected_project = &projects[selection];
+    
+    // Show selected project and strong warning
+    println!("");
+    println!("🚨 ⚠️  DANGER WARNING ⚠️  🚨");
+    println!("═══════════════════════════════════════════════════════════════");
+    println!("  You are about to DELETE the entire project:");
+    println!("  📁 Name: {}", selected_project.name);
+    println!("  📁 Slug: {}", selected_project.slug);
+    println!("  📁 Description: {}", selected_project.description);
+    println!("");
+    println!("  ❌ This action CANNOT be undone!");
+    println!("  ❌ ALL time entries will be permanently lost!");
+    println!("  ❌ ALL tracking history will be permanently lost!");
+    println!("");
+    println!("  💡 Consider using 'timetracker export' to backup data first");
+    println!("═══════════════════════════════════════════════════════════════");
+    println!("");
+    
+    print!("Are you absolutely sure? Type 'DELETE PROJECT' to confirm: ");
+    io::stdout().flush()?;
+    
+    let mut confirmation = String::new();
+    io::stdin().read_line(&mut confirmation)?;
+    let confirmation = confirmation.trim();
+    
+    if confirmation != "DELETE PROJECT" {
+        println!("❌ Operation cancelled. Project is safe.");
+        return Ok(());
+    }
+    
+    println!("⚠️  Proceeding with project deletion...");
+    
+    // Delete the project via API
+    match api_client.delete_project(&selected_project.slug).await {
+        Ok(_) => {
+            println!("🗑️  Successfully deleted project '{}' and all its time entries", selected_project.slug);
+            logger.log(&format!("Successfully deleted project: {} ({})", selected_project.slug, selected_project.name)).await?;
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to delete project: {}", e);
+            logger.log(&format!("Failed to delete project {}: {}", selected_project.slug, e)).await?;
+        }
+    }
+    
+    Ok(())
+}
+
 pub async fn delete_times(
     api_client: &ApiClient, 
     logger: &Logger, 
@@ -784,4 +884,314 @@ async fn get_project_display_name(api_client: &ApiClient, project_slug: &str) ->
         }
         Err(_) => project_slug.to_string(),
     }
+}
+
+pub async fn edit_project_by_slug(api_client: &ApiClient, logger: &Logger, slug: &str) -> Result<()> {
+    logger.log(&format!("Editing project: {}", slug)).await?;
+    
+    // Get project details
+    let project = match api_client.get_project(slug).await {
+        Ok(project) => project,
+        Err(e) => {
+            eprintln!("❌ Failed to get project: {}", e);
+            logger.log(&format!("Failed to get project {}: {}", slug, e)).await?;
+            return Ok(());
+        }
+    };
+    
+    // Show current project details and allow editing
+    println!("");
+    println!("Selected project:");
+    println!("  Name: {}", project.name);
+    println!("  Slug: {}", project.slug);
+    println!("  Description: {}", project.description);
+    println!("");
+    
+    // Edit name
+    print!("Enter new name (press Enter to keep '{}'): ", project.name);
+    io::stdout().flush()?;
+    let mut new_name = String::new();
+    io::stdin().read_line(&mut new_name)?;
+    let new_name = new_name.trim();
+    let updated_name = if new_name.is_empty() {
+        project.name.clone()
+    } else {
+        new_name.to_string()
+    };
+    
+    // Edit slug
+    print!("Enter new slug (press Enter to keep '{}'): ", project.slug);
+    io::stdout().flush()?;
+    let mut new_slug = String::new();
+    io::stdin().read_line(&mut new_slug)?;
+    let new_slug = new_slug.trim();
+    let updated_slug = if new_slug.is_empty() {
+        project.slug.clone()
+    } else {
+        // Validate slug format (alphanumeric, hyphens, underscores)
+        if !new_slug.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            println!("❌ Invalid slug format. Slug can only contain letters, numbers, hyphens, and underscores.");
+            return Ok(());
+        }
+        new_slug.to_string()
+    };
+    
+    // Edit description
+    print!("Enter new description (press Enter to keep '{}'): ", project.description);
+    io::stdout().flush()?;
+    let mut new_description = String::new();
+    io::stdin().read_line(&mut new_description)?;
+    let new_description = new_description.trim();
+    let updated_description = if new_description.is_empty() {
+        project.description.clone()
+    } else {
+        new_description.to_string()
+    };
+    
+    // Check if anything changed
+    if updated_name == project.name && 
+       updated_slug == project.slug && 
+       updated_description == project.description {
+        println!("❌ No changes made");
+        return Ok(());
+    }
+    
+    // Create updated project
+    let updated_project = Project {
+        name: updated_name.clone(),
+        slug: updated_slug.clone(),
+        description: updated_description.clone(),
+    };
+    
+    // Confirm changes
+    println!("");
+    println!("Proposed changes:");
+    if updated_name != project.name {
+        println!("  Name: '{}' → '{}'", project.name, updated_name);
+    }
+    if updated_slug != project.slug {
+        println!("  Slug: '{}' → '{}'", project.slug, updated_slug);
+        println!("  ⚠️  Note: Changing slug will move all time entries to new key");
+    }
+    if updated_description != project.description {
+        println!("  Description: '{}' → '{}'", project.description, updated_description);
+    }
+    println!("");
+    
+    print!("Apply these changes? (y/N): ");
+    io::stdout().flush()?;
+    let mut confirmation = String::new();
+    io::stdin().read_line(&mut confirmation)?;
+    let confirmation = confirmation.trim();
+    
+    if !confirmation.eq_ignore_ascii_case("y") && !confirmation.eq_ignore_ascii_case("yes") {
+        println!("❌ Changes cancelled");
+        return Ok(());
+    }
+    
+    // Update the project via API
+    match api_client.update_project(&project.slug, updated_project).await {
+        Ok(_) => {
+            println!("✅ Successfully updated project");
+            if updated_slug != project.slug {
+                println!("   💡 Project slug changed from '{}' to '{}'", project.slug, updated_slug);
+                println!("   💡 Use '{}' for future commands", updated_slug);
+            }
+            logger.log(&format!("Updated project: {} → name:'{}', slug:'{}', desc:'{}'", 
+                               project.slug, updated_name, updated_slug, updated_description)).await?;
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to update project: {}", e);
+            logger.log(&format!("Failed to update project {}: {}", project.slug, e)).await?;
+        }
+    }
+    
+    Ok(())
+}
+
+pub async fn delete_project_with_confirmation(api_client: &ApiClient, logger: &Logger, slug: &str) -> Result<()> {
+    logger.log(&format!("Deleting project: {}", slug)).await?;
+    
+    // Get project details
+    let project = match api_client.get_project(slug).await {
+        Ok(project) => project,
+        Err(e) => {
+            eprintln!("❌ Failed to get project: {}", e);
+            logger.log(&format!("Failed to get project {}: {}", slug, e)).await?;
+            return Ok(());
+        }
+    };
+    
+    // Show selected project and strong warning
+    println!("");
+    println!("🚨 ⚠️  DANGER WARNING ⚠️  🚨");
+    println!("═══════════════════════════════════════════════════════════════");
+    println!("  You are about to DELETE the entire project:");
+    println!("  📁 Name: {}", project.name);
+    println!("  📁 Slug: {}", project.slug);
+    println!("  📁 Description: {}", project.description);
+    println!("");
+    println!("  ❌ This action CANNOT be undone!");
+    println!("  ❌ ALL time entries will be permanently lost!");
+    println!("  ❌ ALL tracking history will be permanently lost!");
+    println!("");
+    println!("  💡 Consider using 'timetracker export' to backup data first");
+    println!("═══════════════════════════════════════════════════════════════");
+    println!("");
+    
+    print!("Are you absolutely sure? Type 'DELETE PROJECT' to confirm: ");
+    io::stdout().flush()?;
+    
+    let mut confirmation = String::new();
+    io::stdin().read_line(&mut confirmation)?;
+    let confirmation = confirmation.trim();
+    
+    if confirmation != "DELETE PROJECT" {
+        println!("❌ Operation cancelled. Project is safe.");
+        return Ok(());
+    }
+    
+    println!("⚠️  Proceeding with project deletion...");
+    
+    // Delete the project via API
+    match api_client.delete_project(slug).await {
+        Ok(_) => {
+            println!("🗑️  Successfully deleted project '{}' and all its time entries", slug);
+            logger.log(&format!("Successfully deleted project: {} ({})", slug, project.name)).await?;
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to delete project: {}", e);
+            logger.log(&format!("Failed to delete project {}: {}", slug, e)).await?;
+        }
+    }
+    
+    Ok(())
+}
+
+async fn select_project(api_client: &ApiClient, logger: &Logger, action_name: &str) -> Result<Option<String>> {
+    // Get all projects
+    let projects = match api_client.get_projects().await {
+        Ok(projects) => {
+            if projects.is_empty() {
+                println!("❌ No projects found");
+                return Ok(None);
+            }
+            projects
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to get projects: {}", e);
+            logger.log(&format!("Failed to get projects: {}", e)).await?;
+            return Ok(None);
+        }
+    };
+    
+    // Display all projects
+    println!("📋 Select a project to {}:", action_name);
+    println!("");
+    for (index, project) in projects.iter().enumerate() {
+        println!("  {}. {} ({}) - {}", 
+                 index + 1, 
+                 project.name, 
+                 project.slug, 
+                 project.description);
+    }
+    
+    println!("");
+    print!("Select project (1-{}), or 'q' to quit: ", projects.len());
+    io::stdout().flush()?;
+    
+    // Get user selection
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let input = input.trim();
+    
+    if input.eq_ignore_ascii_case("q") {
+        println!("❌ {} cancelled", action_name);
+        return Ok(None);
+    }
+    
+    let selection: usize = match input.parse::<usize>() {
+        Ok(num) if num >= 1 && num <= projects.len() => num - 1,
+        _ => {
+            println!("❌ Invalid selection. Please enter a number between 1 and {}", projects.len());
+            return Ok(None);
+        }
+    };
+    
+    let selected_project = &projects[selection];
+    Ok(Some(selected_project.slug.clone()))
+}
+
+pub async fn start_tracking_with_selection(
+    api_client: &ApiClient,
+    logger: &Logger,
+    description: Option<String>,
+) -> Result<()> {
+    if let Some(project_slug) = select_project(api_client, logger, "start tracking").await? {
+        start_tracking(api_client, logger, &project_slug, description).await?;
+    }
+    Ok(())
+}
+
+pub async fn end_tracking_with_selection(
+    api_client: &ApiClient,
+    logger: &Logger,
+    description: String,
+) -> Result<()> {
+    if let Some(project_slug) = select_project(api_client, logger, "stop tracking").await? {
+        end_tracking(api_client, logger, &project_slug, description).await?;
+    }
+    Ok(())
+}
+
+pub async fn show_status_with_selection(
+    api_client: &ApiClient,
+    logger: &Logger,
+) -> Result<()> {
+    if let Some(project_slug) = select_project(api_client, logger, "check status").await? {
+        show_status(api_client, logger, &project_slug).await?;
+    }
+    Ok(())
+}
+
+pub async fn list_times_with_selection(
+    api_client: &ApiClient,
+    logger: &Logger,
+) -> Result<()> {
+    if let Some(project_slug) = select_project(api_client, logger, "list times").await? {
+        list_times(api_client, logger, &project_slug).await?;
+    }
+    Ok(())
+}
+
+pub async fn show_total_with_selection(
+    api_client: &ApiClient,
+    logger: &Logger,
+) -> Result<()> {
+    if let Some(project_slug) = select_project(api_client, logger, "show total").await? {
+        show_total(api_client, logger, &project_slug).await?;
+    }
+    Ok(())
+}
+
+pub async fn edit_time_entry_with_selection(
+    api_client: &ApiClient,
+    logger: &Logger,
+) -> Result<()> {
+    if let Some(project_slug) = select_project(api_client, logger, "edit time entry").await? {
+        edit_time_entry(api_client, logger, &project_slug).await?;
+    }
+    Ok(())
+}
+
+pub async fn delete_times_with_selection(
+    api_client: &ApiClient,
+    logger: &Logger,
+    timestamp: Option<i64>,
+    all: bool,
+) -> Result<()> {
+    if let Some(project_slug) = select_project(api_client, logger, "delete times").await? {
+        delete_times(api_client, logger, &project_slug, timestamp, all).await?;
+    }
+    Ok(())
 } 

@@ -271,9 +271,17 @@ impl ApiClient {
     }
 
     pub async fn get_projects(&self) -> Result<Vec<Project>> {
-        let value = self.get_key("projects").await?;
-        let projects: Vec<Project> = serde_json::from_value(value)?;
+        let projects_value = self.get_key("projects").await?;
+        let projects: Vec<Project> = serde_json::from_value(projects_value)?;
         Ok(projects)
+    }
+
+    pub async fn get_project(&self, slug: &str) -> Result<Project> {
+        let projects = self.get_projects().await?;
+        projects
+            .into_iter()
+            .find(|p| p.slug == slug)
+            .ok_or_else(|| anyhow!("Project with slug '{}' not found", slug))
     }
 
     pub async fn add_project(&self, project: Project) -> Result<()> {

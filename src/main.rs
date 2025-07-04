@@ -13,8 +13,12 @@ use logger::Logger;
 #[command(name = "timetracker")]
 #[command(about = "A CLI tool for time tracking with REST API backend")]
 struct Cli {
+    /// Generate markdown documentation for all commands
+    #[arg(long, hide = true)]
+    markdown_help: bool,
+    
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
@@ -125,6 +129,28 @@ enum TimeAction {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    
+    // Handle markdown help generation
+    if cli.markdown_help {
+        let options = clap_markdown::MarkdownOptions::new()
+            // .title("Time Tracker CLI Documentation".to_string())
+            .show_footer(false)
+            .show_table_of_contents(true)
+            .show_aliases(true);
+        
+        println!("{}", clap_markdown::help_markdown_custom::<Cli>(&options));
+        return Ok(());
+    }
+    
+    // Ensure a command is provided
+    let command = match cli.command {
+        Some(cmd) => cmd,
+        None => {
+            eprintln!("Error: No command provided. Use --help for usage information.");
+            std::process::exit(1);
+        }
+    };
+    
     let logger = Logger::new()?;
     let mut api_client = ApiClient::new()?;
 
@@ -134,7 +160,7 @@ async fn main() -> Result<()> {
         logger.log(&format!("Authentication failed: {}", e)).await?;
     }
 
-    match cli.command {
+    match command {
         Commands::Project { action } => {
             match action {
                 ProjectAction::Add { slug, name, description } => {

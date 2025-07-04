@@ -20,3 +20,4 @@ Thumbs.db
 .env
 .token_cache.json 
 /DATA
+**/__*

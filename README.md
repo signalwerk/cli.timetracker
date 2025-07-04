@@ -12,14 +12,20 @@ The binary will be available at `target/release/timetracker`.
 
 ## Configuration
 
-The tool uses hardcoded credentials for the API. In a production environment, you would want to implement proper credential management.
+The tool uses environment variables for API configuration. Create a `.env` file in the project root or set these environment variables:
 
-- API Base URL: `https://kv.srv.signalwerk.ch/timetracker`
-- Default credentials: username: "user", password: "pass"
+```bash
+API_DOMAIN=https://kv.srv.signalwerk.ch
+API_PROJECT=timetracker
+API_USERNAME=your_username
+API_PASSWORD=your_password
+TOKEN_CACHE_FILE=.token_cache.json  # Optional, defaults to .token_cache.json
+```
 
 ## Logging
 
 All actions are logged for debugging purposes:
+
 - **Development mode**: `timetracker.log` in the current directory
 - **Production mode**: `~/.timetracker.log` in the user's home directory
 
@@ -27,139 +33,40 @@ Development mode is automatically detected by the presence of `Cargo.toml` in th
 
 ## Usage
 
-### Add a Project
+The CLI is organized into logical subcommands for different operations:
+
+- **`project`** - Project management operations
+- **`time`** - Time tracking operations
+- **`export`** - Data export functionality
+
+All time commands support both direct mode (with project slug) and selection mode (interactive project selection).
+
+### Quick Examples
 
 ```bash
-timetracker project add <project-slug> --name "Project Name" --description "Project Description"
-```
-
-Example:
-```bash
+# Project management
 timetracker project add my-website --name "My Website" --description "Personal site"
+timetracker project list
+timetracker project edit my-website
+timetracker project delete my-website
+
+# Time tracking (with project selection)
+timetracker time start --description "Working on homepage"
+timetracker time stop --description "Completed homepage design"
+timetracker time status
+timetracker time list
+timetracker time total
+
+# Time tracking (direct mode)
+timetracker time start my-website --description "Working on homepage"
+timetracker time stop --description "Completed homepage design" my-website
+timetracker time status my-website
+timetracker time list my-website
+timetracker time total my-website
+
+# Data export
+timetracker export --output-dir ./backup --template "{project-name}_{timestamp}.json"
 ```
-
-### Start Time Tracking
-
-```bash
-timetracker start <project-slug> [--description "What you're working on"]
-```
-
-Example:
-```bash
-timetracker start my-website --description "Working on homepage"
-```
-
-### Stop Time Tracking
-
-```bash
-timetracker end <project-slug> [--description "What you completed"]
-```
-
-Example:
-```bash
-timetracker end my-website
-```
-
-### List All Projects
-
-```bash
-timetracker list
-```
-
-### List Time Entries for a Project
-
-```bash
-timetracker times <project-slug>
-```
-
-Example:
-```bash
-timetracker times my-website
-```
-
-### Show Total Time for a Project
-
-```bash
-timetracker total <project-slug>
-```
-
-Example:
-```bash
-timetracker total my-website
-```
-
-### Check Project Status
-
-```bash
-timetracker status <project-slug>
-```
-
-Example:
-```bash
-timetracker status my-website
-```
-
-### Export All Data
-
-Export all keys and values from the server as pretty-formatted JSON files.
-
-```bash
-timetracker export [--output-dir <directory>]
-```
-
-Default output directory is `./DATA`. Examples:
-```bash
-timetracker export                    # Export to ./DATA/
-timetracker export -o ./backup       # Export to ./backup/
-```
-
-### Delete Projects
-
-Delete a project and all its associated time entries.
-
-```bash
-timetracker delete project <project-slug>
-```
-
-Example:
-```bash
-timetracker delete project my-website
-```
-
-### Delete Time Entries
-
-**⚠️ SAFETY FEATURES**: To prevent accidental data loss, deletion commands now have built-in safety checks.
-
-#### Delete specific time entry by timestamp (RECOMMENDED)
-```bash
-# First, list times to see timestamps
-timetracker times <project-slug>
-
-# Delete specific entry by timestamp
-timetracker delete times <project-slug> --timestamp <unix-timestamp>
-```
-
-#### Delete ALL time entries for a project (DANGEROUS!)
-```bash
-# This requires explicit confirmation with --all flag
-# You'll be prompted to type "DELETE ALL" to proceed
-timetracker delete times <project-slug> --all
-```
-
-Examples:
-```bash
-# Safe: Delete specific entry by timestamp
-timetracker times my-website  # Shows: [ts:1234567890]
-timetracker delete times my-website --timestamp 1234567890
-
-# Dangerous: Delete all entries (requires confirmation)
-timetracker delete times my-website --all
-```
-
-**💡 Pro Tips:**
-- Use `timetracker times <project>` first to see timestamps in format `[ts:1234567890]`
-- Consider using `timetracker export` to backup data before deletion
-- Timestamp deletion is much safer than deleting all entries at once
 
 ## API Structure
 
@@ -172,7 +79,7 @@ The tool interacts with a key-value store REST API with the following structure:
 
 ### Project Object
 
-```json
+```js
 {
   "name": "Project Name",
   "slug": "project-slug",
@@ -182,7 +89,7 @@ The tool interacts with a key-value store REST API with the following structure:
 
 ### Time Entry Object
 
-```json
+```js
 {
   "timestamp": 1234567890,
   "type": "start", // or "end"
@@ -190,64 +97,258 @@ The tool interacts with a key-value store REST API with the following structure:
 }
 ```
 
-## Examples
+## Safety Features
+
+The CLI includes several safety features to prevent accidental data loss:
+
+- **Project deletion**: Requires explicit confirmation with "DELETE PROJECT"
+- **Time entry deletion**: Supports both specific timestamp deletion and bulk deletion with confirmation
+- **Selection interfaces**: Interactive project selection reduces typos
+- **Logging**: All operations are logged for audit trails
+- **Export functionality**: Easy data backup before making changes
+
+## Development
+
+To update the command documentation in this README:
 
 ```bash
-# Add a new project
-timetracker project add website --name "Company Website" --description "Main company website"
-
-# Start working
-timetracker start website --description "Updating homepage"
-
-# Check status
-timetracker status website
-
-# Stop working
-timetracker end website --description "Homepage updates complete"
-
-# View all time entries
-timetracker times website
-
-# View total time spent
-timetracker total website
-
-# List all projects
-timetracker list
-
-# Export all data for backup
-timetracker export --output-dir ./backup
-
-# Delete specific time entry (safe) - first check timestamps
-timetracker times website  # Shows timestamps like [ts:1234567890]
-timetracker delete times website --timestamp 1234567890
-
-# Delete ALL time entries (dangerous - requires "DELETE ALL" confirmation)
-timetracker delete times website --all
-
-# Delete entire project and all its data
-timetracker delete project website
+./build.sh
 ```
 
-## Error Handling
+This script automatically regenerates the Commands section using the latest CLI help output.
 
-- If authentication fails, the tool will show a warning but continue to operate in local mode
-- All errors are logged to the log file for debugging
-- Network errors are handled gracefully with user-friendly error messages 
+## Commands
 
-# Build the project
-cargo build --release
+<!-- BEGIN AUTO-GENERATED COMMANDS -->
+<!-- This section is automatically generated by build.sh -->
+<!-- Do not edit manually - changes will be overwritten -->
 
-# Add a project
-./target/release/timetracker project add my-website --name "My Website" --description "Personal site"
+This document contains the help content for the `timetracker` command-line program.
 
-# Start tracking
-./target/release/timetracker start my-website --description "Working on homepage"
+**Command Overview:**
 
-# Check status
-./target/release/timetracker status my-website
+* [`timetracker`↴](#timetracker)
+* [`timetracker project`↴](#timetracker-project)
+* [`timetracker project add`↴](#timetracker-project-add)
+* [`timetracker project list`↴](#timetracker-project-list)
+* [`timetracker project edit`↴](#timetracker-project-edit)
+* [`timetracker project delete`↴](#timetracker-project-delete)
+* [`timetracker time`↴](#timetracker-time)
+* [`timetracker time start`↴](#timetracker-time-start)
+* [`timetracker time stop`↴](#timetracker-time-stop)
+* [`timetracker time status`↴](#timetracker-time-status)
+* [`timetracker time list`↴](#timetracker-time-list)
+* [`timetracker time total`↴](#timetracker-time-total)
+* [`timetracker time edit`↴](#timetracker-time-edit)
+* [`timetracker time delete`↴](#timetracker-time-delete)
+* [`timetracker export`↴](#timetracker-export)
 
-# Stop tracking
-./target/release/timetracker end my-website
+## `timetracker`
 
-# View total time
-./target/release/timetracker total my-website 
+A CLI tool for time tracking with REST API backend
+
+**Usage:** `timetracker [COMMAND]`
+
+###### **Subcommands:**
+
+* `project` — Project management operations
+* `time` — Time tracking operations
+* `export` — Export all data as JSON files
+
+
+
+## `timetracker project`
+
+Project management operations
+
+**Usage:** `timetracker project <COMMAND>`
+
+###### **Subcommands:**
+
+* `add` — Add a new project
+* `list` — List all projects
+* `edit` — Edit project details (name, description, slug)
+* `delete` — Delete a project
+
+
+
+## `timetracker project add`
+
+Add a new project
+
+**Usage:** `timetracker project add [OPTIONS] <SLUG>`
+
+###### **Arguments:**
+
+* `<SLUG>` — Project slug
+
+###### **Options:**
+
+* `-n`, `--name <NAME>` — Project name
+* `-d`, `--description <DESCRIPTION>` — Project description
+
+
+
+## `timetracker project list`
+
+List all projects
+
+**Usage:** `timetracker project list`
+
+
+
+## `timetracker project edit`
+
+Edit project details (name, description, slug)
+
+**Usage:** `timetracker project edit [PROJECT]`
+
+###### **Arguments:**
+
+* `<PROJECT>` — Project slug (optional - if not provided, shows selection list)
+
+
+
+## `timetracker project delete`
+
+Delete a project
+
+**Usage:** `timetracker project delete [PROJECT]`
+
+###### **Arguments:**
+
+* `<PROJECT>` — Project slug (optional - if not provided, shows selection list)
+
+
+
+## `timetracker time`
+
+Time tracking operations
+
+**Usage:** `timetracker time <COMMAND>`
+
+###### **Subcommands:**
+
+* `start` — Start tracking time for a project
+* `stop` — Stop tracking time for a project
+* `status` — Check if a project is currently running
+* `list` — List time entries for a project
+* `total` — Show total time for a project
+* `edit` — Edit the description of a time entry
+* `delete` — Delete time entries for a project
+
+
+
+## `timetracker time start`
+
+Start tracking time for a project
+
+**Usage:** `timetracker time start [OPTIONS] [PROJECT]`
+
+###### **Arguments:**
+
+* `<PROJECT>` — Project slug (optional - if not provided, shows selection list)
+
+###### **Options:**
+
+* `-d`, `--description <DESCRIPTION>` — Optional description
+
+
+
+## `timetracker time stop`
+
+Stop tracking time for a project
+
+**Usage:** `timetracker time stop --description <DESCRIPTION> [PROJECT]`
+
+###### **Arguments:**
+
+* `<PROJECT>` — Project slug (optional - if not provided, shows selection list)
+
+###### **Options:**
+
+* `-d`, `--description <DESCRIPTION>` — Description of what was accomplished during this time session
+
+
+
+## `timetracker time status`
+
+Check if a project is currently running
+
+**Usage:** `timetracker time status [PROJECT]`
+
+###### **Arguments:**
+
+* `<PROJECT>` — Project slug (optional - if not provided, shows selection list)
+
+
+
+## `timetracker time list`
+
+List time entries for a project
+
+**Usage:** `timetracker time list [PROJECT]`
+
+###### **Arguments:**
+
+* `<PROJECT>` — Project slug (optional - if not provided, shows selection list)
+
+
+
+## `timetracker time total`
+
+Show total time for a project
+
+**Usage:** `timetracker time total [PROJECT]`
+
+###### **Arguments:**
+
+* `<PROJECT>` — Project slug (optional - if not provided, shows selection list)
+
+
+
+## `timetracker time edit`
+
+Edit the description of a time entry
+
+**Usage:** `timetracker time edit [PROJECT]`
+
+###### **Arguments:**
+
+* `<PROJECT>` — Project slug (optional - if not provided, shows selection list)
+
+
+
+## `timetracker time delete`
+
+Delete time entries for a project
+
+**Usage:** `timetracker time delete [OPTIONS] [PROJECT]`
+
+###### **Arguments:**
+
+* `<PROJECT>` — Project slug (optional - if not provided, shows selection list)
+
+###### **Options:**
+
+* `-t`, `--timestamp <TIMESTAMP>` — Delete by specific timestamp (safer than deleting all)
+* `--all` — Force delete ALL time entries (DANGEROUS! Requires confirmation)
+
+
+
+## `timetracker export`
+
+Export all data as JSON files
+
+**Usage:** `timetracker export [OPTIONS]`
+
+###### **Options:**
+
+* `-o`, `--output-dir <OUTPUT_DIR>` — Output directory
+
+  Default value: `./DATA`
+* `-t`, `--filename-template <FILENAME_TEMPLATE>` — Filename template with placeholders: {project-name}, {timestamp}, {key-name}
+
+  Default value: `{timestamp}_{key-name}.json`
+
+<!-- END AUTO-GENERATED COMMANDS -->

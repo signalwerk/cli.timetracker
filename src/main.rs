@@ -63,6 +63,8 @@ enum Commands {
         /// Project slug
         project_slug: String,
     },
+    /// Edit project details (name, description, slug)
+    EditProject,
     /// Export all data as JSON files
     Export {
         /// Output directory
@@ -154,6 +156,9 @@ async fn main() -> Result<()> {
         }
         Commands::Edit { project_slug } => {
             commands::edit_time_entry(&api_client, &logger, &project_slug).await?;
+        }
+        Commands::EditProject => {
+            commands::edit_project_details(&api_client, &logger).await?;
         }
         Commands::Export { output_dir, filename_template } => {
             commands::export_data(&api_client, &logger, &output_dir, &filename_template).await?;

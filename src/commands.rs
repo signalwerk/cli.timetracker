@@ -605,4 +605,168 @@ pub async fn edit_time_entry(api_client: &ApiClient, logger: &Logger, project_sl
     }
     
     Ok(())
+}
+
+pub async fn edit_project_details(api_client: &ApiClient, logger: &Logger) -> Result<()> {
+    logger.log("Editing project details").await?;
+    
+    // Get all projects
+    let projects = match api_client.get_projects().await {
+        Ok(projects) => {
+            if projects.is_empty() {
+                println!("❌ No projects found");
+                return Ok(());
+            }
+            projects
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to get projects: {}", e);
+            logger.log(&format!("Failed to get projects: {}", e)).await?;
+            return Ok(());
+        }
+    };
+    
+    // Display all projects
+    println!("📝 Select a project to edit:");
+    println!("");
+    for (index, project) in projects.iter().enumerate() {
+        println!("  {}. {} ({}) - {}", 
+                 index + 1, 
+                 project.name, 
+                 project.slug, 
+                 project.description);
+    }
+    
+    println!("");
+    print!("Select project to edit (1-{}), or 'q' to quit: ", projects.len());
+    io::stdout().flush()?;
+    
+    // Get user selection
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let input = input.trim();
+    
+    if input.eq_ignore_ascii_case("q") {
+        println!("❌ Edit cancelled");
+        return Ok(());
+    }
+    
+    let selection: usize = match input.parse::<usize>() {
+        Ok(num) if num >= 1 && num <= projects.len() => num - 1,
+        _ => {
+            println!("❌ Invalid selection. Please enter a number between 1 and {}", projects.len());
+            return Ok(());
+        }
+    };
+    
+    let selected_project = &projects[selection];
+    
+    // Show current project details and allow editing
+    println!("");
+    println!("Selected project:");
+    println!("  Name: {}", selected_project.name);
+    println!("  Slug: {}", selected_project.slug);
+    println!("  Description: {}", selected_project.description);
+    println!("");
+    
+    // Edit name
+    print!("Enter new name (press Enter to keep '{}'): ", selected_project.name);
+    io::stdout().flush()?;
+    let mut new_name = String::new();
+    io::stdin().read_line(&mut new_name)?;
+    let new_name = new_name.trim();
+    let updated_name = if new_name.is_empty() {
+        selected_project.name.clone()
+    } else {
+        new_name.to_string()
+    };
+    
+    // Edit slug
+    print!("Enter new slug (press Enter to keep '{}'): ", selected_project.slug);
+    io::stdout().flush()?;
+    let mut new_slug = String::new();
+    io::stdin().read_line(&mut new_slug)?;
+    let new_slug = new_slug.trim();
+    let updated_slug = if new_slug.is_empty() {
+        selected_project.slug.clone()
+    } else {
+        // Validate slug format (alphanumeric, hyphens, underscores)
+        if !new_slug.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+            println!("❌ Invalid slug format. Slug can only contain letters, numbers, hyphens, and underscores.");
+            return Ok(());
+        }
+        new_slug.to_string()
+    };
+    
+    // Edit description
+    print!("Enter new description (press Enter to keep '{}'): ", selected_project.description);
+    io::stdout().flush()?;
+    let mut new_description = String::new();
+    io::stdin().read_line(&mut new_description)?;
+    let new_description = new_description.trim();
+    let updated_description = if new_description.is_empty() {
+        selected_project.description.clone()
+    } else {
+        new_description.to_string()
+    };
+    
+    // Check if anything changed
+    if updated_name == selected_project.name && 
+       updated_slug == selected_project.slug && 
+       updated_description == selected_project.description {
+        println!("❌ No changes made");
+        return Ok(());
+    }
+    
+    // Create updated project
+    let updated_project = Project {
+        name: updated_name.clone(),
+        slug: updated_slug.clone(),
+        description: updated_description.clone(),
+    };
+    
+    // Confirm changes
+    println!("");
+    println!("Proposed changes:");
+    if updated_name != selected_project.name {
+        println!("  Name: '{}' → '{}'", selected_project.name, updated_name);
+    }
+    if updated_slug != selected_project.slug {
+        println!("  Slug: '{}' → '{}'", selected_project.slug, updated_slug);
+        println!("  ⚠️  Note: Changing slug will move all time entries to new key");
+    }
+    if updated_description != selected_project.description {
+        println!("  Description: '{}' → '{}'", selected_project.description, updated_description);
+    }
+    println!("");
+    
+    print!("Apply these changes? (y/N): ");
+    io::stdout().flush()?;
+    let mut confirmation = String::new();
+    io::stdin().read_line(&mut confirmation)?;
+    let confirmation = confirmation.trim();
+    
+    if !confirmation.eq_ignore_ascii_case("y") && !confirmation.eq_ignore_ascii_case("yes") {
+        println!("❌ Changes cancelled");
+        return Ok(());
+    }
+    
+    // Update the project via API
+    match api_client.update_project(&selected_project.slug, updated_project).await {
+        Ok(_) => {
+            println!("✅ Successfully updated project");
+            if updated_slug != selected_project.slug {
+                println!("   💡 Project slug changed from '{}' to '{}'", selected_project.slug, updated_slug);
+                println!("   💡 Use '{}' for future commands", updated_slug);
+            }
+            logger.log(&format!("Updated project: {} → name:'{}', slug:'{}', desc:'{}'", 
+                               selected_project.slug, updated_name, updated_slug, updated_description)).await?;
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to update project: {}", e);
+            logger.log(&format!("Failed to update project {}: {}", selected_project.slug, e)).await?;
+        }
+    }
+    
+    Ok(())
 } 

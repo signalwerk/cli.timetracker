@@ -296,6 +296,47 @@ impl ApiClient {
         }
     }
 
+    pub async fn update_project(&self, old_slug: &str, updated_project: Project) -> Result<()> {
+        let mut projects = self.get_projects().await.unwrap_or_default();
+        
+        // Find the project to update
+        let project_index = projects.iter().position(|p| p.slug == old_slug)
+            .ok_or_else(|| anyhow!("Project with slug '{}' not found", old_slug))?;
+        
+        // If slug is changing, check if new slug already exists (but ignore the current project)
+        if old_slug != updated_project.slug {
+            if projects.iter().enumerate().any(|(i, p)| i != project_index && p.slug == updated_project.slug) {
+                return Err(anyhow!("Project with slug '{}' already exists", updated_project.slug));
+            }
+            
+            // If slug is changing, we need to move the time entries to the new key
+            let old_time_key = format!("projects/{}", old_slug);
+            let new_time_key = format!("projects/{}", updated_project.slug);
+            
+            // Get existing time entries for the old slug
+            if let Ok(time_entries) = self.get_time_entries(old_slug).await {
+                if !time_entries.is_empty() {
+                    // Save time entries under new slug
+                    let value = serde_json::to_value(time_entries)?;
+                    self.set_key(&new_time_key, value).await?;
+                    
+                    // Delete old time entries
+                    if let Err(e) = self.delete_key(&old_time_key).await {
+                        // Only fail if it's not a 404 (key doesn't exist)
+                        if !e.to_string().contains("404") {
+                            return Err(anyhow!("Failed to delete old time entries: {}", e));
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Update the project in the projects list
+        projects[project_index] = updated_project;
+        let value = serde_json::to_value(projects)?;
+        self.update_key("projects", value).await
+    }
+
     pub async fn get_time_entries(&self, project_slug: &str) -> Result<Vec<TimeEntry>> {
         let key = format!("projects/{}", project_slug);
         let value = self.get_key(&key).await?;

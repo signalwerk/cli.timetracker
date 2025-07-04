@@ -44,10 +44,11 @@ pub async fn start_tracking(
     description: Option<String>,
 ) -> Result<()> {
     // Check current status before starting
+    let project_display = get_project_display_name(api_client, project_slug).await;
     match api_client.get_time_entries(project_slug).await {
         Ok(entries) => {
             if is_project_running(&entries) {
-                eprintln!("❌ Project '{}' is already running!", project_slug);
+                eprintln!("❌ Project {} is already running!", project_display);
                 eprintln!("   💡 Use 'timetracker end {}' to stop tracking first", project_slug);
                 logger.log(&format!("Attempted to start already running project: {}", project_slug)).await?;
                 return Ok(());
@@ -70,7 +71,7 @@ pub async fn start_tracking(
 
     match api_client.add_time_entry(project_slug, entry).await {
         Ok(_) => {
-            println!("⏱️  Started tracking time for project '{}'", project_slug);
+            println!("⏱️  Started tracking time for project {}", project_display);
             if let Some(desc) = &description {
                 println!("   Description: {}", desc);
             }
@@ -97,17 +98,18 @@ pub async fn end_tracking(
     description: String,
 ) -> Result<()> {
     // Check current status before stopping
+    let project_display = get_project_display_name(api_client, project_slug).await;
     match api_client.get_time_entries(project_slug).await {
         Ok(entries) => {
             if entries.is_empty() {
-                eprintln!("❌ No time entries found for project '{}'!", project_slug);
+                eprintln!("❌ No time entries found for project {}!", project_display);
                 eprintln!("   💡 Use 'timetracker start {}' to start tracking first", project_slug);
                 logger.log(&format!("Attempted to stop project with no entries: {}", project_slug)).await?;
                 return Ok(());
             }
             
             if !is_project_running(&entries) {
-                eprintln!("❌ Project '{}' is not currently running!", project_slug);
+                eprintln!("❌ Project {} is not currently running!", project_display);
                 eprintln!("   💡 Use 'timetracker start {}' to start tracking first", project_slug);
                 logger.log(&format!("Attempted to stop already stopped project: {}", project_slug)).await?;
                 return Ok(());
@@ -130,7 +132,7 @@ pub async fn end_tracking(
 
     match api_client.add_time_entry(project_slug, entry).await {
         Ok(_) => {
-            println!("⏹️  Stopped tracking time for project '{}'", project_slug);
+            println!("⏹️  Stopped tracking time for project {}", project_display);
             println!("   What was done: {}", description);
             let log_msg = format!("Stopped tracking time for project '{}' with description: {}", project_slug, description);
             logger.log(&log_msg).await?;
@@ -769,4 +771,17 @@ pub async fn edit_project_details(api_client: &ApiClient, logger: &Logger) -> Re
     }
     
     Ok(())
+}
+
+async fn get_project_display_name(api_client: &ApiClient, project_slug: &str) -> String {
+    match api_client.get_projects().await {
+        Ok(projects) => {
+            if let Some(project) = projects.iter().find(|p| p.slug == project_slug) {
+                format!("{} ({})", project.name, project.slug)
+            } else {
+                project_slug.to_string()
+            }
+        }
+        Err(_) => project_slug.to_string(),
+    }
 } 

@@ -403,4 +403,27 @@ impl ApiClient {
         let value = serde_json::to_value(entries)?;
         self.update_key(&key, value).await
     }
+
+    pub async fn update_time_entry_by_timestamp(&self, project_slug: &str, timestamp: i64, new_description: Option<String>) -> Result<()> {
+        let key = format!("projects/{}", project_slug);
+        let mut entries = self.get_time_entries(project_slug).await.unwrap_or_default();
+        
+        // Find the entry with the specified timestamp and update its description
+        let mut found = false;
+        for entry in &mut entries {
+            if entry.timestamp == timestamp {
+                entry.description = new_description.clone();
+                found = true;
+                break;
+            }
+        }
+        
+        if !found {
+            return Err(anyhow!("Time entry with timestamp {} not found for project '{}'", timestamp, project_slug));
+        }
+        
+        // Update the entries list
+        let value = serde_json::to_value(entries)?;
+        self.update_key(&key, value).await
+    }
 } 

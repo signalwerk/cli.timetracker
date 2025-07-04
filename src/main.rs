@@ -58,6 +58,11 @@ enum Commands {
         /// Project slug
         project_slug: String,
     },
+    /// Edit the description of a time entry
+    Edit {
+        /// Project slug
+        project_slug: String,
+    },
     /// Export all data as JSON files
     Export {
         /// Output directory
@@ -143,6 +148,9 @@ async fn main() -> Result<()> {
         }
         Commands::Status { project_slug } => {
             commands::show_status(&api_client, &logger, &project_slug).await?;
+        }
+        Commands::Edit { project_slug } => {
+            commands::edit_time_entry(&api_client, &logger, &project_slug).await?;
         }
         Commands::Export { output_dir } => {
             commands::export_data(&api_client, &logger, &output_dir).await?;

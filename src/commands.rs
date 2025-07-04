@@ -1,10 +1,11 @@
 use crate::api::{ApiClient, Project, TimeEntry};
 use crate::logger::Logger;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Utc, Local};
 use std::fs;
 use std::path::Path;
 use std::io::{self, Write};
+use std::cmp::Reverse;
 
 pub async fn add_project(
     api_client: &ApiClient,
@@ -176,14 +177,15 @@ pub async fn list_times(api_client: &ApiClient, logger: &Logger, project_slug: &
             } else {
                 println!("⏱️  Time entries for project '{}':", project_slug);
                 for entry in entries {
-                    let datetime = DateTime::from_timestamp(entry.timestamp, 0)
+                    let utc_datetime = DateTime::from_timestamp(entry.timestamp, 0)
                         .unwrap_or_else(|| Utc::now());
+                    let local_datetime = utc_datetime.with_timezone(&Local);
                     let type_icon = if entry.entry_type == "start" { "▶️" } else { "⏹️" };
                     
                     print!("  {} {} {} [ts:{}]", 
                            type_icon, 
                            entry.entry_type.to_uppercase(), 
-                           datetime.format("%Y-%m-%d %H:%M:%S UTC"),
+                           local_datetime.format("%Y-%m-%d %H:%M:%S %Z"),
                            entry.timestamp);
                     if let Some(desc) = &entry.description {
                         print!(" - {}", desc);
@@ -238,12 +240,13 @@ pub async fn show_status(api_client: &ApiClient, logger: &Logger, project_slug: 
                 if let Some(last_start) = entries.iter()
                     .filter(|e| e.entry_type == "start")
                     .max_by_key(|e| e.timestamp) {
-                    let start_time = DateTime::from_timestamp(last_start.timestamp, 0)
+                    let utc_start_time = DateTime::from_timestamp(last_start.timestamp, 0)
                         .unwrap_or_else(|| Utc::now());
+                    let local_start_time = utc_start_time.with_timezone(&Local);
                     let duration = Utc::now().timestamp() - last_start.timestamp;
                     let hours = duration / 3600;
                     let minutes = (duration % 3600) / 60;
-                    println!("   Started at: {}", start_time.format("%Y-%m-%d %H:%M:%S UTC"));
+                    println!("   Started at: {}", local_start_time.format("%Y-%m-%d %H:%M:%S %Z"));
                     println!("   Running for: {}h {}m", hours, minutes);
                 }
             } else {
@@ -370,10 +373,11 @@ pub async fn delete_times(
         
         match api_client.delete_time_entry_by_timestamp(project_slug, ts).await {
             Ok(_) => {
-                let datetime = DateTime::from_timestamp(ts, 0)
+                let utc_datetime = DateTime::from_timestamp(ts, 0)
                     .unwrap_or_else(|| Utc::now());
+                let local_datetime = utc_datetime.with_timezone(&Local);
                 println!("🗑️  Successfully deleted time entry from {} for project '{}'", 
-                         datetime.format("%Y-%m-%d %H:%M:%S UTC"), project_slug);
+                         local_datetime.format("%Y-%m-%d %H:%M:%S %Z"), project_slug);
                 logger.log(&format!("Successfully deleted time entry {} for project: {}", ts, project_slug)).await?;
             }
             Err(e) => {
@@ -439,5 +443,124 @@ async fn show_danger_warning_and_confirm(project_slug: &str) -> Result<()> {
     }
     
     println!("⚠️  Proceeding with deletion...");
+    Ok(())
+}
+
+pub async fn edit_time_entry(api_client: &ApiClient, logger: &Logger, project_slug: &str) -> Result<()> {
+    logger.log(&format!("Editing time entry for project '{}'", project_slug)).await?;
+    
+    // Get time entries for the project
+    let entries = match api_client.get_time_entries(project_slug).await {
+        Ok(entries) => {
+            if entries.is_empty() {
+                println!("❌ No time entries found for project '{}'", project_slug);
+                return Ok(());
+            }
+            entries
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to get time entries: {}", e);
+            logger.log(&format!("Failed to get time entries for {}: {}", project_slug, e)).await?;
+            return Ok(());
+        }
+    };
+    
+    // Sort entries by timestamp (newest first) and take last 5
+    let mut sorted_entries = entries.clone();
+    sorted_entries.sort_by_key(|e| Reverse(e.timestamp));
+    let recent_entries: Vec<_> = sorted_entries.into_iter().take(5).collect();
+    
+    // Display the recent entries
+    println!("📝 Recent time entries for project '{}':", project_slug);
+    println!("");
+    for (index, entry) in recent_entries.iter().enumerate() {
+        let utc_datetime = DateTime::from_timestamp(entry.timestamp, 0)
+            .unwrap_or_else(|| Utc::now());
+        let local_datetime = utc_datetime.with_timezone(&Local);
+        let type_icon = if entry.entry_type == "start" { "▶️" } else { "⏹️" };
+        let description = entry.description.as_ref()
+            .map(|d| format!(" - {}", d))
+            .unwrap_or_else(|| " - (no description)".to_string());
+        
+                 println!("  {}. {} {} {}{}",
+                 index + 1,
+                 type_icon,
+                 entry.entry_type.to_uppercase(),
+                 local_datetime.format("%Y-%m-%d %H:%M:%S %Z"),
+                 description);
+    }
+    
+    println!("");
+    print!("Select entry to edit (1-{}), or 'q' to quit: ", recent_entries.len());
+    io::stdout().flush()?;
+    
+    // Get user selection
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let input = input.trim();
+    
+    if input.eq_ignore_ascii_case("q") {
+        println!("❌ Edit cancelled");
+        return Ok(());
+    }
+    
+    let selection: usize = match input.parse::<usize>() {
+        Ok(num) if num >= 1 && num <= recent_entries.len() => num - 1,
+        _ => {
+            println!("❌ Invalid selection. Please enter a number between 1 and {}", recent_entries.len());
+            return Ok(());
+        }
+    };
+    
+    let selected_entry = &recent_entries[selection];
+    
+    // Show current description and allow editing
+    println!("");
+    println!("Selected entry:");
+    let utc_datetime = DateTime::from_timestamp(selected_entry.timestamp, 0)
+        .unwrap_or_else(|| Utc::now());
+    let local_datetime = utc_datetime.with_timezone(&Local);
+    let type_icon = if selected_entry.entry_type == "start" { "▶️" } else { "⏹️" };
+    println!("  {} {} {}", type_icon, selected_entry.entry_type.to_uppercase(), local_datetime.format("%Y-%m-%d %H:%M:%S %Z"));
+    
+    let current_desc = selected_entry.description.as_ref()
+        .map(|d| d.as_str())
+        .unwrap_or("(no description)");
+    println!("  Current description: {}", current_desc);
+    println!("");
+    
+    print!("Enter new description (press Enter to keep current, or type 'CLEAR' to remove): ");
+    io::stdout().flush()?;
+    
+    let mut new_description = String::new();
+    io::stdin().read_line(&mut new_description)?;
+    let new_description = new_description.trim();
+    
+    let updated_description = if new_description.is_empty() {
+        // Keep current description
+        selected_entry.description.clone()
+    } else if new_description.eq_ignore_ascii_case("CLEAR") {
+        // Clear description
+        None
+    } else {
+        // Set new description
+        Some(new_description.to_string())
+    };
+    
+    // Update the entry via API
+    match api_client.update_time_entry_by_timestamp(project_slug, selected_entry.timestamp, updated_description.clone()).await {
+        Ok(_) => {
+            let desc_text = updated_description.as_ref()
+                .map(|d| format!("'{}'", d))
+                .unwrap_or_else(|| "(no description)".to_string());
+            println!("✅ Successfully updated description to: {}", desc_text);
+            logger.log(&format!("Updated time entry {} description for project {}", selected_entry.timestamp, project_slug)).await?;
+        }
+        Err(e) => {
+            eprintln!("❌ Failed to update description: {}", e);
+            logger.log(&format!("Failed to update time entry {} for {}: {}", selected_entry.timestamp, project_slug, e)).await?;
+        }
+    }
+    
     Ok(())
 } 

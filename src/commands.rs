@@ -93,7 +93,7 @@ pub async fn end_tracking(
     api_client: &ApiClient,
     logger: &Logger,
     project_slug: &str,
-    description: Option<String>,
+    description: String,
 ) -> Result<()> {
     // Check current status before stopping
     match api_client.get_time_entries(project_slug).await {
@@ -124,20 +124,14 @@ pub async fn end_tracking(
     let entry = TimeEntry {
         timestamp,
         entry_type: "end".to_string(),
-        description: description.clone(),
+        description: Some(description.clone()),
     };
 
     match api_client.add_time_entry(project_slug, entry).await {
         Ok(_) => {
             println!("⏹️  Stopped tracking time for project '{}'", project_slug);
-            if let Some(desc) = &description {
-                println!("   Description: {}", desc);
-            }
-            let log_msg = if let Some(desc) = description {
-                format!("Stopped tracking time for project '{}' with description: {}", project_slug, desc)
-            } else {
-                format!("Stopped tracking time for project '{}'", project_slug)
-            };
+            println!("   What was done: {}", description);
+            let log_msg = format!("Stopped tracking time for project '{}' with description: {}", project_slug, description);
             logger.log(&log_msg).await?;
         }
         Err(e) => {

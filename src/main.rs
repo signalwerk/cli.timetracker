@@ -37,9 +37,9 @@ enum Commands {
     End {
         /// Project slug
         project_slug: String,
-        /// Optional description
+        /// Description of what was accomplished during this time session
         #[arg(short, long)]
-        description: Option<String>,
+        description: String,
     },
     /// List all projects
     List,

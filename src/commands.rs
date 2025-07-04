@@ -304,20 +304,27 @@ fn is_project_running(entries: &[TimeEntry]) -> bool {
     }
 }
 
-pub async fn export_data(api_client: &ApiClient, logger: &Logger, output_dir: &str) -> Result<()> {
-    logger.log(&format!("Exporting data to directory: {}", output_dir)).await?;
+pub async fn export_data(api_client: &ApiClient, logger: &Logger, output_dir: &str, filename_template: &str) -> Result<()> {
+    logger.log(&format!("Exporting data to directory: {} with template: {}", output_dir, filename_template)).await?;
     
     // Create output directory if it doesn't exist
     fs::create_dir_all(output_dir)?;
     
+    // Generate export timestamp for filename templates
+    let export_timestamp = Utc::now().format("%Y%m%d_%H%M%S").to_string();
+    
     match api_client.get_all_keys().await {
         Ok(keys) => {
             let keys_count = keys.len();
-            println!("📁 Exporting {} keys to {}", keys_count, output_dir);
+            println!("📁 Exporting {} keys to {} using template '{}'", keys_count, output_dir, filename_template);
             
             for key_data in keys {
-                // Convert key to a safe filename (replace slashes with underscores)
-                let filename = key_data.key.replace("/", "_") + ".json";
+                // Generate filename from template
+                let filename = generate_filename_from_template(
+                    filename_template, 
+                    &key_data.key, 
+                    &export_timestamp
+                );
                 let file_path = Path::new(output_dir).join(filename);
                 
                 // Parse the value (which is stored as a JSON string) and pretty print it
@@ -341,6 +348,41 @@ pub async fn export_data(api_client: &ApiClient, logger: &Logger, output_dir: &s
     }
     
     Ok(())
+}
+
+fn generate_filename_from_template(template: &str, key: &str, timestamp: &str) -> String {
+    let mut filename = template.to_string();
+    
+    // Replace {key-name} placeholder
+    let safe_key_name = key.replace("/", "_");
+    filename = filename.replace("{key-name}", &safe_key_name);
+    
+    // Replace {timestamp} placeholder
+    filename = filename.replace("{timestamp}", timestamp);
+    
+    // Replace {project-name} placeholder
+    let project_name = extract_project_name_from_key(key);
+    filename = filename.replace("{project-name}", &project_name);
+    
+    filename
+}
+
+fn extract_project_name_from_key(key: &str) -> String {
+    // For keys like "projects/TypeRoof", extract "TypeRoof"
+    // For keys like "projects", return "all_projects"
+    // For other keys, return "general"
+    
+    if key.starts_with("projects/") {
+        if let Some(project_slug) = key.strip_prefix("projects/") {
+            if !project_slug.is_empty() {
+                return project_slug.to_string();
+            }
+        }
+    } else if key == "projects" {
+        return "all_projects".to_string();
+    }
+    
+    "general".to_string()
 }
 
 pub async fn delete_project(api_client: &ApiClient, logger: &Logger, slug: &str) -> Result<()> {

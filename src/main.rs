@@ -68,6 +68,9 @@ enum Commands {
         /// Output directory
         #[arg(short, long, default_value = "./DATA")]
         output_dir: String,
+        /// Filename template with placeholders: {project-name}, {timestamp}, {key-name}
+        #[arg(short = 't', long, default_value = "{timestamp}_{key-name}.json")]
+        filename_template: String,
     },
     /// Delete projects or time entries
     Delete {
@@ -152,8 +155,8 @@ async fn main() -> Result<()> {
         Commands::Edit { project_slug } => {
             commands::edit_time_entry(&api_client, &logger, &project_slug).await?;
         }
-        Commands::Export { output_dir } => {
-            commands::export_data(&api_client, &logger, &output_dir).await?;
+        Commands::Export { output_dir, filename_template } => {
+            commands::export_data(&api_client, &logger, &output_dir, &filename_template).await?;
         }
         Commands::Delete { target } => {
             match target {

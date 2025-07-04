@@ -19,3 +19,4 @@ Thumbs.db
 # Environment and cache files
 .env
 .token_cache.json 
+/DATA
